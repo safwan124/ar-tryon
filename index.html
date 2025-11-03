@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ar-tryon</title>
+    
+    <!-- Simplified MediaPipe loading with offline fallback -->
+    <script>
+      console.log('Initializing MediaPipe loading...');
+      
+      // Simple MediaPipe loading with basic fallback
+      function loadMediaPipe() {
+        // Try the most reliable CDN first
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675466864/hands.js';
+        script.crossOrigin = 'anonymous';
+        
+        script.onload = () => {
+          console.log('✓ MediaPipe loaded successfully');
+          window.dispatchEvent(new CustomEvent('mediapipeLoaded'));
+        };
+        
+        script.onerror = () => {
+          console.error('✗ Primary MediaPipe CDN failed');
+          // Create a mock MediaPipe for offline testing
+          createMockMediaPipe();
+        };
+        
+        document.head.appendChild(script);
+      }
+      
+      // Create a mock MediaPipe for offline testing
+      function createMockMediaPipe() {
+        console.log('Creating mock MediaPipe for offline testing...');
+        
+        window.mpHands = {
+          Hands: function(options) {
+            this.options = options;
+            this.onResults = null;
+            this.onResultsCallback = null; // Additional callback storage
+            this.instance = this; // Store reference for callback access
+            
+            // Override onResults method to store callback
+            this.onResults = function(callback) {
+              console.log('Mock MediaPipe: onResults method called with callback:', callback);
+              this.onResultsCallback = callback;
+              this.onResults = callback; // Store the callback
+              console.log('Mock MediaPipe: Callback stored, this.onResults now:', this.onResults);
+            };
+            
+            this.send = async function(data) {
+              // Mock hand detection - only detect when user shows a hand gesture
+              // Check if user is making a hand gesture (simulate real detection)
+              const shouldDetectHand = Math.random() > 0.3; // 70% chance of detection
+              
+              if (shouldDetectHand) {
+                console.log('Mock MediaPipe: Simulating hand detection');
+                
+                const mockLandmarks = [];
+                for (let i = 0; i < 21; i++) {
+                  // Create realistic hand landmarks in center of screen
+                  const baseX = 0.5 + Math.sin(Date.now() * 0.001 + i * 0.1) * 0.1;
+                  const baseY = 0.5 + Math.cos(Date.now() * 0.001 + i * 0.1) * 0.1;
+                  
+                  mockLandmarks.push({
+                    x: baseX,
+                    y: baseY,
+                    z: Math.sin(Date.now() * 0.002) * 0.02,
+                    visibility: 0.9
+                  });
+                }
+                
+                const callback = this.onResults || this.onResultsCallback;
+                if (callback) {
+                  console.log('Mock MediaPipe: Calling onResults callback');
+                  try {
+                    callback({
+                      multiHandLandmarks: [mockLandmarks]
+                    });
+                    console.log('Mock MediaPipe: onResults callback completed');
+                  } catch (error) {
+                    console.error('Mock MediaPipe: Error in onResults callback:', error);
+                  }
+                }
+              } else {
+                console.log('Mock MediaPipe: No hand detected');
+                const callback = this.onResults || this.onResultsCallback;
+                if (callback) {
+                  callback({
+                    multiHandLandmarks: []
+                  });
+                }
+              }
+            };
+            
+            this.close = function() {
+              console.log('Mock MediaPipe Hands closed');
+            };
+          },
+          
+          Camera: function(video, options) {
+            this.video = video;
+            this.options = options;
+            this.handsInstance = null;
+            
+            this.start = function() {
+              console.log('Mock MediaPipe Camera started');
+              
+              // Trigger hand detection immediately
+              setTimeout(() => {
+                if (this.handsInstance && this.handsInstance.send) {
+                  console.log('Mock Camera: Triggering immediate hand detection');
+                  this.handsInstance.send({ image: this.video });
+                }
+              }, 1000); // 1 second delay
+              
+              // Simulate camera frames with regular hand detection
+              let frameCount = 0;
+              const interval = setInterval(() => {
+                if (this.options && this.options.onFrame) {
+                  this.options.onFrame();
+                }
+                frameCount++;
+                
+                // Trigger hand detection every 10 frames (less frequent)
+                if (frameCount % 10 === 0) {
+                  setTimeout(() => {
+                    if (this.handsInstance && this.handsInstance.send) {
+                      console.log('Mock Camera: Triggering periodic hand detection');
+                      this.handsInstance.send({ image: this.video });
+                    }
+                  }, 100);
+                }
+              }, 300); // 3 FPS for mock (slower)
+              
+              // Store interval for cleanup
+              this.interval = interval;
+            };
+            
+            this.stop = function() {
+              if (this.interval) {
+                clearInterval(this.interval);
+                console.log('Mock MediaPipe Camera stopped');
+              }
+            };
+          }
+        };
+        
+        console.log('✓ Mock MediaPipe created');
+        window.dispatchEvent(new CustomEvent('mediapipeLoaded'));
+      }
+      
+      // Start loading
+      setTimeout(() => {
+        if (window.mpHands) {
+          console.log('✓ MediaPipe already available');
+          window.dispatchEvent(new CustomEvent('mediapipeLoaded'));
+        } else {
+          loadMediaPipe();
+        }
+      }, 500);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
