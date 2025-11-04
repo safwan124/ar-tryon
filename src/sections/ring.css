@@ -43,6 +43,32 @@ canvas {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
+@media (max-width: 768px) {
+  .ring-text {
+    font-size: 2rem;
+    letter-spacing: 2px;
+    top: 3%;
+  }
+
+  .ring-label {
+    font-size: 0.9rem;
+    padding: 10px 18px;
+  }
+
+  .try-on-button {
+    font-size: 0.85rem;
+    padding: 10px 18px;
+  }
+
+  .ring-label-container {
+    gap: 10px;
+    bottom: 18%;
+    left: 0;
+    transform: none;
+    padding-left: 20px;
+  }
+}
+
 /* ring Label Container */
 .ring-label-container {
   position: absolute;

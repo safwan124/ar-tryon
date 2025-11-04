@@ -15,6 +15,10 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
   const handsRef = useRef(null);
   const cameraFeedRef = useRef(null);
   const animationFrameRef = useRef(null);
+  
+  // Detect mobile device
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                   (window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
 
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current) return;
@@ -97,7 +101,7 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
         video: {
           width: { ideal: 640 },
           height: { ideal: 480 },
-          facingMode: "user",
+          facingMode: isMobile ? "environment" : "user",
         },
         audio: false,
       })
@@ -249,7 +253,7 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          transform: "scaleX(-1)", // Mirror video like a selfie camera
+          transform: isMobile ? "none" : "scaleX(-1)", // Mirror video for front camera only
           zIndex: 1,
           backgroundColor: "#000",
         }}

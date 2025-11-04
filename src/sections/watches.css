@@ -41,6 +41,31 @@ canvas {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
+@media (max-width: 768px) {
+  .watch-text {
+    font-size: 1rem;
+    letter-spacing: 1px;
+    top: 3%;
+  }
+
+  .watch-label {
+    font-size: 10px;
+    padding: 10px 18px;
+  }
+
+  .try-on-button {
+    font-size: 0.85rem;
+    padding: 10px 18px;
+  }
+
+  .watch-label-container {
+    gap: 15px;
+    bottom: 20%;
+    left: 10%;
+    transform: translateX(-50%);
+  }
+}
+
 /* Watch Label Container */
 .watch-label-container {
   position: absolute;
