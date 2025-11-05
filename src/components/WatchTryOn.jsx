@@ -15,13 +15,14 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
   const handsRef = useRef(null);
   const cameraFeedRef = useRef(null);
   const animationFrameRef = useRef(null);
-  
-  // Detect mobile device
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                   (window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     if (!canvasRef.current || !videoRef.current) return;
+
+    // Detect mobile device inside useEffect to ensure accuracy
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                     (window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
 
     // Scene setup
     const scene = new THREE.Scene();
@@ -96,92 +97,139 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
     // Setup camera stream first
     const videoElement = videoRef.current;
     
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: isMobile ? "environment" : "user",
-        },
-        audio: false,
-      })
-      .then((stream) => {
-        if (!stream || stream.getVideoTracks().length === 0) {
-          console.error("No video tracks in stream");
-          return;
-        }
+    // Stop any existing tracks first
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoElement.srcObject) {
+      const existingTracks = videoElement.srcObject.getTracks();
+      existingTracks.forEach(track => track.stop());
+      videoElement.srcObject = null;
+    }
+    
+    // Enterprise-grade camera request with graceful fallback
+    async function getCameraStream() {
+      let stream = null;
 
-        videoElement.srcObject = stream;
-        videoElement.playsInline = true;
-        videoElement.muted = true;
+      // 1) try environment camera (rear) for mobile
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        console.log("Using back camera (environment)");
+        return stream;
+      } catch (_) {}
 
-        videoElement.onloadedmetadata = () => {
-          videoElement.play()
-            .then(() => {
-              console.log("Video playing successfully");
+      // 2) fallback to user (front) camera (works on laptop)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "user" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+        console.log("Using front camera (user) - fallback");
+        return stream;
+      } catch (err2) {
+        console.error("No camera available", err2);
+        throw err2;
+      }
+    }
+    
+    getCameraStream().then((stream) => {
+      if (!stream || stream.getVideoTracks().length === 0) {
+        console.error("No video tracks in stream");
+        return;
+      }
 
-              // Initialize MediaPipe Hands after video is ready
-              const hands = new Hands({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-              });
+      // Store stream reference
+      streamRef.current = stream;
+      
+      // Verify we got the correct camera
+      const videoTrack = stream.getVideoTracks()[0];
+      const settings = videoTrack.getSettings();
+      console.log("Camera settings:", settings);
 
-              hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.7,
-                minTrackingConfidence: 0.7,
-              });
+      videoElement.srcObject = stream;
+      videoElement.setAttribute("playsinline", "true");
+      videoElement.playsInline = true;
+      videoElement.muted = true;
 
-              hands.onResults((results) => {
-                if (!modelRef.current || !results.multiHandLandmarks || !results.multiHandLandmarks[0]) return;
+      videoElement.onloadedmetadata = () => {
+        videoElement.play()
+          .then(() => {
+            console.log("Video playing successfully");
 
-                const landmarks = results.multiHandLandmarks[0];
-                const wrist = landmarks[0];
-                const indexBase = landmarks[5];
-
-                if (!wrist || !indexBase) return;
-
-                // Map wrist position to screen coordinates
-                const x = (wrist.x - 0.5) * 2;
-                const y = -(wrist.y - 0.5) * 2;
-                const z = -wrist.z * 2.0; // Depth scaling
-
-                modelRef.current.position.set(x, y, z);
-
-                // Rotate the model slightly depending on hand orientation
-                const dx = indexBase.x - wrist.x;
-                const dy = indexBase.y - wrist.y;
-                modelRef.current.rotation.z = Math.atan2(dy, dx);
-              });
-
-              handsRef.current = hands;
-
-              // Camera feed for MediaPipe
-              const cameraFeed = new Camera(videoElement, {
-                onFrame: async () => {
-                  if (videoElement.readyState >= 2) {
-                    try {
-                      await hands.send({ image: videoElement });
-                    } catch (err) {
-                      // Ignore occasional MediaPipe errors
-                    }
-                  }
-                },
-                width: 640,
-                height: 480,
-              });
-
-              cameraFeedRef.current = cameraFeed;
-              cameraFeed.start();
-            })
-            .catch((err) => {
-              console.error("Video play error:", err);
+            // Initialize MediaPipe Hands after video is ready
+            const hands = new Hands({
+              locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
             });
-        };
-      })
-      .catch((err) => {
-        console.error("Camera access error:", err);
-      });
+
+            hands.setOptions({
+              maxNumHands: 1,
+              modelComplexity: 1,
+              minDetectionConfidence: 0.7,
+              minTrackingConfidence: 0.7,
+            });
+
+            hands.onResults((results) => {
+              if (!modelRef.current || !results.multiHandLandmarks || !results.multiHandLandmarks[0]) return;
+
+              const landmarks = results.multiHandLandmarks[0];
+              const wrist = landmarks[0];
+              const indexBase = landmarks[5];
+
+              if (!wrist || !indexBase) return;
+
+              // Map wrist position to screen coordinates
+              const x = (wrist.x - 0.5) * 2;
+              const y = -(wrist.y - 0.5) * 2;
+              const z = -wrist.z * 2.0; // Depth scaling
+
+              modelRef.current.position.set(x, y, z);
+
+              // Rotate the model slightly depending on hand orientation
+              const dx = indexBase.x - wrist.x;
+              const dy = indexBase.y - wrist.y;
+              modelRef.current.rotation.z = Math.atan2(dy, dx);
+            });
+
+            handsRef.current = hands;
+
+            // Camera feed for MediaPipe
+            const cameraFeed = new Camera(videoElement, {
+              onFrame: async () => {
+                if (videoElement.readyState >= 2) {
+                  try {
+                    await hands.send({ image: videoElement });
+                  } catch (err) {
+                    // Ignore occasional MediaPipe errors
+                  }
+                }
+              },
+              width: 640,
+              height: 480,
+            });
+
+            cameraFeedRef.current = cameraFeed;
+            cameraFeed.start();
+          })
+          .catch((err) => {
+            console.error("Video play error:", err);
+          });
+      };
+    })
+    .catch((err) => {
+      console.error("Camera access error:", err);
+    });
 
     // Render loop
     const animate = () => {
@@ -223,6 +271,10 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
       }
 
       // Stop video tracks
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
       if (videoElement && videoElement.srcObject) {
         const tracks = videoElement.srcObject.getTracks();
         tracks.forEach((track) => track.stop());
@@ -253,7 +305,9 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          transform: isMobile ? "none" : "scaleX(-1)", // Mirror video for front camera only
+          transform: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                     (window.matchMedia && window.matchMedia("(max-width: 768px)").matches) 
+                     ? "none" : "scaleX(-1)", // Mirror video for front camera only
           zIndex: 1,
           backgroundColor: "#000",
         }}
