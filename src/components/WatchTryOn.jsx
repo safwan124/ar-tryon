@@ -108,27 +108,102 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
       videoElement.srcObject = null;
     }
     
-    // Enterprise-grade camera request with graceful fallback
+    // Enterprise-grade camera request with deviceId locking
     async function getCameraStream() {
-      let stream = null;
-
-      // 1) try environment camera (rear) for mobile
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
+        // First, enumerate all devices to find the back camera
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        
+        if (videoDevices.length === 0) {
+          throw new Error("No video devices found");
+        }
+
+        // Prioritize environment camera (rear) for mobile
+        // Check label for common back camera indicators
+        const rearCam = videoDevices.find(d => {
+          const label = d.label.toLowerCase();
+          return label.includes('back') || 
+                 label.includes('rear') ||
+                 label.includes('environment') ||
+                 label.includes('facing back');
         });
-        console.log("Using back camera (environment)");
-        return stream;
-      } catch (_) {}
 
-      // 2) fallback to user (front) camera (works on laptop)
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        if (rearCam && rearCam.deviceId) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: rearCam.deviceId }, // Lock deviceId
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+              audio: false
+            });
+            console.log("Using back camera (deviceId locked):", rearCam.label || rearCam.deviceId);
+            return stream;
+          } catch (err) {
+            console.warn("Failed to access rear camera with deviceId, trying fallback:", err);
+          }
+        }
+
+        // Fallback: try environment camera with facingMode first
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+          
+          // Get the deviceId from the stream we just got
+          const videoTrack = stream.getVideoTracks()[0];
+          const settings = videoTrack.getSettings();
+          
+          if (settings.deviceId) {
+            // Stop this stream and get a new one with locked deviceId
+            stream.getTracks().forEach(track => track.stop());
+            
+            const lockedStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: settings.deviceId }, // Lock deviceId
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+              audio: false
+            });
+            console.log("Using back camera (deviceId locked from stream):", settings.deviceId);
+            return lockedStream;
+          }
+          
+          console.log("Using back camera (facingMode)");
+          return stream;
+        } catch (err) {
+          console.warn("Failed to access environment camera:", err);
+        }
+
+        // Fallback to front camera
+        const frontCam = videoDevices[0];
+        if (frontCam && frontCam.deviceId) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: frontCam.deviceId }, // Lock deviceId
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+              },
+              audio: false
+            });
+            console.log("Using front camera (deviceId locked):", frontCam.label || frontCam.deviceId);
+            return stream;
+          } catch (err) {
+            console.warn("Failed to access front camera with deviceId:", err);
+          }
+        }
+
+        // Ultimate fallback: try with facingMode user
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "user" },
             width: { ideal: 1280 },
@@ -136,11 +211,11 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
           },
           audio: false
         });
-        console.log("Using front camera (user) - fallback");
+        console.log("Using camera (facingMode user fallback)");
         return stream;
-      } catch (err2) {
-        console.error("No camera available", err2);
-        throw err2;
+      } catch (err) {
+        console.error("No camera available", err);
+        throw err;
       }
     }
     
@@ -204,7 +279,7 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
 
             handsRef.current = hands;
 
-            // Camera feed for MediaPipe
+            // Camera feed for MediaPipe (removed width/height to prevent camera re-request)
             const cameraFeed = new Camera(videoElement, {
               onFrame: async () => {
                 if (videoElement.readyState >= 2) {
@@ -214,9 +289,7 @@ const WatchTryOn = ({ modelPath = "/models/watch-v1.glb", onClose }) => {
                     // Ignore occasional MediaPipe errors
                   }
                 }
-              },
-              width: 640,
-              height: 480,
+              }
             });
 
             cameraFeedRef.current = cameraFeed;
